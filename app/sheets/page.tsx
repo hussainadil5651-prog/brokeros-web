@@ -42,11 +42,12 @@ export default function SheetsPage() {
         try { extraSheets = JSON.parse(saved || '[]') } catch {}
 
         for (const extra of extraSheets) {
+          const resolvedId = extractSheetId(extra.id)
           // New format: { id, tab, label } — load exactly that tab
           if (extra.tab) {
-            if (!allSheets.some(s => s.tab === extra.tab && s.sheetId === extra.id)) {
+            if (!allSheets.some(s => s.tab === extra.tab && s.sheetId === resolvedId)) {
               try {
-                const sr = await fetch(`/api/sheets/data?sheetId=${encodeURIComponent(extra.id)}&tabName=${encodeURIComponent(extra.tab)}`)
+                const sr = await fetch(`/api/sheets/data?sheetId=${encodeURIComponent(resolvedId)}&tabName=${encodeURIComponent(extra.tab)}`)
                 if (sr.ok) {
                   const sd = await sr.json()
                   if (sd.sheets?.length > 0) allSheets.push(sd.sheets[0])
@@ -55,20 +56,20 @@ export default function SheetsPage() {
             }
           // Legacy format: { id, name } where name was used as both label and tab name
           // If that exact tab doesn't exist, discover all tabs from the sheet instead
-          } else if (extra.name && !allSheets.some(s => s.sheetId === extra.id)) {
+          } else if (extra.name && !allSheets.some(s => s.sheetId === resolvedId)) {
             try {
-              const sr = await fetch(`/api/sheets/data?sheetId=${encodeURIComponent(extra.id)}&tabName=${encodeURIComponent(extra.name)}`)
+              const sr = await fetch(`/api/sheets/data?sheetId=${encodeURIComponent(resolvedId)}&tabName=${encodeURIComponent(extra.name)}`)
               if (sr.ok) {
                 const sd = await sr.json()
                 if (sd.sheets?.length > 0) allSheets.push(sd.sheets[0])
               } else {
                 // Tab name might not match — discover all tabs
-                const discR = await fetch(`/api/sheets/data?sheetId=${encodeURIComponent(extra.id)}`)
+                const discR = await fetch(`/api/sheets/data?sheetId=${encodeURIComponent(resolvedId)}`)
                 if (discR.ok) {
                   const discData = await discR.json()
                   const tabs = (discData.sheets ?? []) as SheetTab[]
                   for (const t of tabs) {
-                    if (!allSheets.some(s => s.tab === t.tab && s.sheetId === extra.id)) {
+                    if (!allSheets.some(s => s.tab === t.tab && s.sheetId === resolvedId)) {
                       allSheets.push(t)
                     }
                   }
@@ -85,13 +86,24 @@ export default function SheetsPage() {
 
   useEffect(() => { if (authStatus === 'authenticated') fetchData() }, [authStatus])
 
+  function extractSheetId(input: string): string {
+    const trimmed = input.trim()
+    // Already a bare ID (no slashes, no http)
+    if (!trimmed.includes('/') && !trimmed.includes('http')) return trimmed
+    // Extract from URL: /d/{ID}/
+    const match = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/)
+    if (match) return match[1]
+    return trimmed
+  }
+
   async function handleAddSheet() {
     if (!addSheetId.trim()) return
     setAdding(true)
     setAddError('')
     try {
+      const resolvedId = extractSheetId(addSheetId)
       // First discover tabs from the actual sheet — validates ID + permissions
-      const discR = await fetch(`/api/sheets/data?sheetId=${encodeURIComponent(addSheetId.trim())}`)
+      const discR = await fetch(`/api/sheets/data?sheetId=${encodeURIComponent(resolvedId)}`)
       if (!discR.ok) {
         const discData = await discR.json().catch(() => ({}))
         setAddError(discData.error || 'Cannot read sheet. Make sure it is shared with the service account.')
@@ -113,9 +125,9 @@ export default function SheetsPage() {
       try { extraSheets = JSON.parse(saved || '[]') } catch {}
 
       for (const st of discoveredTabs) {
-        const exists = extraSheets.some(s => s.id === addSheetId.trim() && s.tab === st.tab)
+        const exists = extraSheets.some(s => s.id === resolvedId && s.tab === st.tab)
         if (!exists) {
-          extraSheets.push({ id: addSheetId.trim(), tab: st.tab, label: st.tab })
+          extraSheets.push({ id: resolvedId, tab: st.tab, label: st.tab })
         }
       }
 
@@ -286,10 +298,10 @@ export default function SheetsPage() {
               <div>
                 <label className="mb-1 block text-xs font-medium text-zinc-500">Google Sheet ID</label>
                 <input type="text" value={addSheetId} onChange={e => setAddSheetId(e.target.value)}
-                  placeholder="1ABCxyz..."
+                  placeholder="Paste full URL or just the Sheet ID"
                   className="w-full rounded-md border border-white/[0.06] bg-zinc-950 px-3 py-2 text-sm text-zinc-100 placeholder-zinc-700 outline-none transition focus:border-amber-500/30 font-mono" />
                 <p className="mt-1 text-[10px] text-zinc-700">
-                  Find in URL: <span className="font-mono">docs.google.com/spreadsheets/d/<strong className="text-zinc-500">1ABCxyz...</strong>/edit</span>
+                  Full URL or just: <span className="font-mono">docs.google.com/spreadsheets/d/<strong className="text-zinc-500">1ABCxyz...</strong>/edit</span>
                 </p>
               </div>
               <div>
