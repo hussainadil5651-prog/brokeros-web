@@ -1,0 +1,16 @@
+{
+  "name": "AFA DISPATCH",
+  "short_name": "AFA",
+  "description": "Freight brokerage command center",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "icons": [
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
