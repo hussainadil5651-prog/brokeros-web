@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { getClient, findEmailColumn, extractEmails } from '@/lib/google-sheets'
-import { getActiveLeads } from '@/lib/response-store'
+import { getActiveLeads, getSuppressedEmails } from '@/lib/response-store'
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       gid: s.properties?.sheetId ?? 0,
     }))
 
-    const suppressedSet = new Set<string>()
+    const suppressedSet = new Set((await getSuppressedEmails(session.user.email)).map((s) => s.toLowerCase()))
     const activeSet = new Set((await getActiveLeads(session.user.email)).map((l) => l.email.toLowerCase()))
 
     const syncedSheets: {

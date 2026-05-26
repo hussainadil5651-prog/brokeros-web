@@ -5,7 +5,7 @@ import { SYSTEM_PROMPT, getMockResponse, setLastAiError, getLastAiError } from '
 
 async function tryGroq(messages: { role: string; content: string }[]): Promise<string | null> {
   const groqKey = process.env.GROQ_API_KEY
-  if (!groqKey) { setLastAiError('Groq key not configured'); return null }
+  if (!groqKey || groqKey === 'your-groq-api-key-here') { setLastAiError('Groq key not configured'); return null }
   try {
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -65,12 +65,13 @@ async function tryGemini(messages: { role: string; content: string }[]): Promise
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json()
-  const { message, context, mode } = body
-  if (!message) return NextResponse.json({ error: 'Message is required' }, { status: 400 })
+    const body = await req.json()
+    const { message, context, mode } = body
+    if (!message) return NextResponse.json({ error: 'Message is required' }, { status: 400 })
 
   const fullMessage = mode === 'email_reply'
     ? `${context ? `Context: ${context}\n\n` : ''}${message}`
@@ -95,4 +96,8 @@ export async function POST(req: NextRequest) {
     hasGemini: !!process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'your-gemini-api-key-here',
   })
   return NextResponse.json({ reply, source: 'mock' })
+  } catch (e) {
+    setLastAiError(`AI route error: ${e}`)
+    return NextResponse.json({ reply: getMockResponse('', '', { lastError: String(e), hasDeepSeek: false, hasOpenAI: false, hasGemini: false }), source: 'mock' })
+  }
 }
