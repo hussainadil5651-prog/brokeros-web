@@ -11,6 +11,6 @@ export async function GET(req: NextRequest) {
   const loadId = searchParams.get('loadId')
   if (!loadId) return NextResponse.json({ error: 'loadId is required' }, { status: 400 })
 
-  const activity = getActivity(loadId)
+  const activity = await getActivity(loadId)
   return NextResponse.json({ activity })
 }

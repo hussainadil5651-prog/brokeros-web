@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { searchEmails } from '@/lib/search-store'
 import { getLoads, getCarriers as getSharedCarriers, getInvoices } from '@/lib/shared-store'
+import { getUserConfig } from '@/lib/config'
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,11 +15,15 @@ export async function GET(req: NextRequest) {
     const scope = searchParams.get('scope') ?? 'email'
 
     if (scope === 'global') {
-      const [loads, carriers, invoices] = await Promise.all([
-        getLoads(),
-        getSharedCarriers(),
-        getInvoices(),
-      ])
+      const config = await getUserConfig(session.user.email)
+      let loads: any[] = []
+      let carriers: any[] = []
+      let invoices: any[] = []
+      if (config.loadSheetId) {
+        loads = await getLoads(config.loadSheetId)
+        carriers = await getSharedCarriers(config.loadSheetId)
+        invoices = await getInvoices(config.loadSheetId)
+      }
       const { searchGlobal } = await import('@/lib/search-store')
       const results = searchGlobal(q, loads, carriers, invoices, session.user.email)
       return NextResponse.json({ results })

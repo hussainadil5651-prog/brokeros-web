@@ -1,4 +1,4 @@
-import { readAllLoads, type ParsedLoad, parseCurrency } from './google-sheets'
+import { readAllLoads, type ParsedLoad, parseCurrency, detectTabs } from './google-sheets'
 
 export type LoadStatus = 'quote' | 'booked' | 'dispatched' | 'in_transit' | 'delivered' | 'invoiced' | 'paid'
 
@@ -35,13 +35,14 @@ export interface Load {
   rate: number
   carrierCost: number
   profit: number
+  netCommission: number
   marginPct: number
   status: LoadStatus
   invoiceId: string | null
   bookedBy: string
   notes: string
   createdAt: string
-  company: 'CW' | 'ST'
+  company: string
   invoiceStatus: string
   _sheetRow: number
   _sheetTab: string
@@ -94,12 +95,12 @@ function mapInvoiceStatus(sheetInvStatus: string): 'cleared' | 'unpaid' {
   return 'unpaid'
 }
 
-let cachedLoads: Load[] | null = null
-let lastFetch = 0
+// Per-user load cache
+const loadCache = new Map<string, { loads: Load[]; ts: number }>()
 const CACHE_TTL = 300_000
 
-export async function refreshFromSheet(): Promise<Load[]> {
-  const parsed = await readAllLoads()
+export async function refreshFromSheet(sheetId: string, tabs?: string[]): Promise<Load[]> {
+  const parsed = await readAllLoads(sheetId, tabs)
 
   const loads: Load[] = parsed.map((p, i) => ({
     id: `load-${p.proNo}`,
@@ -118,6 +119,7 @@ export async function refreshFromSheet(): Promise<Load[]> {
     rate: p.rate,
     carrierCost: p.carrierCost,
     profit: p.profit,
+    netCommission: p.netCommission,
     marginPct: p.rate > 0 ? Math.round((p.profit / p.rate) * 100) : 0,
     status: mapStatus(p.status),
     invoiceId: null,
@@ -130,25 +132,25 @@ export async function refreshFromSheet(): Promise<Load[]> {
     _sheetTab: p._sheetTab,
   }))
 
-  cachedLoads = loads
-  lastFetch = Date.now()
+  loadCache.set(sheetId, { loads, ts: Date.now() })
   return loads
 }
 
-export async function getLoads(): Promise<Load[]> {
-  if (!cachedLoads || Date.now() - lastFetch > CACHE_TTL) {
-    return refreshFromSheet()
+export async function getLoads(sheetId: string): Promise<Load[]> {
+  const cached = loadCache.get(sheetId)
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return cached.loads
   }
-  return cachedLoads
+  return refreshFromSheet(sheetId)
 }
 
-export async function getLoadsByStatus(status: LoadStatus): Promise<Load[]> {
-  const all = await getLoads()
+export async function getLoadsByStatus(sheetId: string, status: LoadStatus): Promise<Load[]> {
+  const all = await getLoads(sheetId)
   return all.filter((l) => l.status === status)
 }
 
-export async function getLoadById(id: string): Promise<Load | null> {
-  const all = await getLoads()
+export async function getLoadById(sheetId: string, id: string): Promise<Load | null> {
+  const all = await getLoads(sheetId)
   return all.find((l) => l.id === id) ?? null
 }
 
@@ -177,8 +179,8 @@ export function extractCarriers(loads: Load[]): Carrier[] {
   return Array.from(seen.values())
 }
 
-export async function getCarriers(): Promise<Carrier[]> {
-  const loads = await getLoads()
+export async function getCarriers(sheetId?: string): Promise<Carrier[]> {
+  const loads = sheetId ? await getLoads(sheetId) : []
   return extractCarriers(loads)
 }
 
@@ -232,7 +234,7 @@ export function extractInvoices(loads: Load[]): Invoice[] {
       const payrollCycle = l.deliveryDate ? getPayrollCycle(l.deliveryDate) : null
       const fortnightlyPayoutDate = payrollCycle ? payrollCycle.end : null
       const isPastPayroll = !!fortnightlyPayoutDate && fortnightlyPayoutDate <= today
-      const payoutAmount = Math.round(l.rate * 0.65)
+      const payoutAmount = l.netCommission
       return {
         id: `inv-${l.loadNumber}`,
         invoiceNumber: `INV-${l.loadNumber}`,
@@ -252,16 +254,16 @@ export function extractInvoices(loads: Load[]): Invoice[] {
     })
 }
 
-export async function getInvoices(): Promise<Invoice[]> {
-  const loads = await getLoads()
+export async function getInvoices(sheetId?: string): Promise<Invoice[]> {
+  const loads = sheetId ? await getLoads(sheetId) : []
   return extractInvoices(loads)
 }
 
-export async function getPayoutForecast(): Promise<{
+export async function getPayoutForecast(sheetId?: string): Promise<{
   totalExpected: number; totalPaid: number; pendingCount: number; paidCount: number
   nextPayoutDate: string; nextPayoutAmount: number; currentPayrollCycle: { start: string; end: string } | null
 }> {
-  const invoices = await getInvoices()
+  const invoices = sheetId ? await getInvoices(sheetId) : []
   const unpaidInvoices = invoices.filter((i) => i.status !== 'paid')
   const totalExpected = unpaidInvoices.reduce((s, i) => s + i.expectedPayout, 0)
   const totalPaid = invoices.filter((i) => i.status === 'paid').reduce((s, i) => s + i.expectedPayout, 0)
@@ -280,7 +282,10 @@ export async function getPayoutForecast(): Promise<{
   return { totalExpected, totalPaid, pendingCount, paidCount, nextPayoutDate, nextPayoutAmount, currentPayrollCycle }
 }
 
-export function invalidateCache(): void {
-  cachedLoads = null
-  lastFetch = 0
+export function invalidateCache(sheetId?: string): void {
+  if (sheetId) {
+    loadCache.delete(sheetId)
+  } else {
+    loadCache.clear()
+  }
 }

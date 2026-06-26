@@ -14,13 +14,13 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#09090b',
+  themeColor: '#f8f7f4',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className={`${GeistSans.variable} ${GeistMono.variable} min-h-screen bg-zinc-950 text-zinc-300 antialiased`}
+    <html lang="en">
+      <body className={`${GeistSans.variable} ${GeistMono.variable}`}
         style={{ fontFeatureSettings: '"cv02", "cv03", "cv04", "cv11"' }}>
         <AuthContext>
           <ToastProvider>

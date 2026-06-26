@@ -2,20 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { readAllSheets, createBatches } from '@/lib/google-sheets'
-
-interface ImportedBatch {
-  id: string
-  batchDate: string
-  batchNumber: number
-  emails: string[]
-  assignedTo: string
-  status: string
-  totalEmails: number
-  createdAt: string
-  sourceSheet: string
-}
-
-const importedBatches: ImportedBatch[] = []
+import { storeBatch } from '@/app/api/batches/import/store'
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -33,22 +20,30 @@ export async function POST(req: NextRequest) {
   try {
     const sheets = await readAllSheets(sheetId)
     const today = new Date().toISOString().split('T')[0]
-    const newBatches: ImportedBatch[] = []
+    let totalBatchesCreated = 0
 
     for (const sheet of sheets) {
       if (sheet.emails.length === 0) continue
       const batches = createBatches(sheet.emails, 30, today, session.user.email)
       for (const b of batches) {
-        newBatches.push({ ...b, sourceSheet: sheet.name })
+        await storeBatch({
+          id: b.id,
+          batchDate: b.batchDate,
+          batchNumber: b.batchNumber,
+          emails: b.emails,
+          assignedTo: b.assignedTo,
+          status: b.status,
+          totalEmails: b.totalEmails,
+          createdAt: b.createdAt,
+        }, session.user.email)
+        totalBatchesCreated++
       }
     }
-
-    importedBatches.push(...newBatches)
 
     return NextResponse.json({
       totalSheets: sheets.length,
       totalEmails: sheets.reduce((s, sh) => s + sh.emails.length, 0),
-      batchesCreated: newBatches.length,
+      batchesCreated: totalBatchesCreated,
       sheets: sheets.map((s) => ({ name: s.name, emails: s.emails.length })),
     })
   } catch (err: any) {

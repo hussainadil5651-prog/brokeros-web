@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   const { email, batchId, text } = body
   if (!email || !text) return NextResponse.json({ error: 'email and text are required' }, { status: 400 })
 
-  const comment = addComment(email, batchId ?? '', text, session.user.email)
+  const comment = await addComment(email, batchId ?? '', text, session.user.email)
   return NextResponse.json({ comment })
 }
 
@@ -24,6 +24,6 @@ export async function GET(req: NextRequest) {
   const batchId = searchParams.get('batchId')
   if (!email) return NextResponse.json({ error: 'email is required' }, { status: 400 })
 
-  const comments = getComments(email, batchId ?? '')
+  const comments = await getComments(email, batchId ?? '')
   return NextResponse.json({ comments })
 }

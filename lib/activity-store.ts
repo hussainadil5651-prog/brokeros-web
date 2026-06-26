@@ -1,3 +1,5 @@
+import { readData, writeData } from './app-sheet'
+
 export interface ActivityEntry {
   id: string
   loadId: string
@@ -8,10 +10,27 @@ export interface ActivityEntry {
   metadata?: Record<string, string>
 }
 
-const activities = new Map<string, ActivityEntry[]>()
+const STORE_KEY = 'activity'
+const activityCache = new Map<string, ActivityEntry[]>()
 
-export function logActivity(loadId: string, entry: Omit<ActivityEntry, 'id' | 'createdAt' | 'loadId'>): ActivityEntry {
-  const list = activities.get(loadId) ?? []
+async function ensureLoaded(loadId: string): Promise<ActivityEntry[]> {
+  if (activityCache.has(loadId)) return activityCache.get(loadId)!
+  const all = await readData<ActivityEntry>('_shared', STORE_KEY)
+  const forLoad = all.filter(a => a.loadId === loadId)
+  activityCache.set(loadId, forLoad)
+  return forLoad
+}
+
+async function persistAll(): Promise<void> {
+  const all: ActivityEntry[] = []
+  for (const entries of activityCache.values()) {
+    all.push(...entries)
+  }
+  await writeData('_shared', STORE_KEY, all)
+}
+
+export async function logActivity(loadId: string, entry: Omit<ActivityEntry, 'id' | 'createdAt' | 'loadId'>): Promise<ActivityEntry> {
+  const list = await ensureLoaded(loadId)
   const activity: ActivityEntry = {
     id: `act-${loadId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     loadId,
@@ -19,10 +38,11 @@ export function logActivity(loadId: string, entry: Omit<ActivityEntry, 'id' | 'c
     createdAt: new Date().toISOString(),
   }
   list.push(activity)
-  activities.set(loadId, list)
+  await persistAll()
   return activity
 }
 
-export function getActivity(loadId: string): ActivityEntry[] {
-  return (activities.get(loadId) ?? []).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+export async function getActivity(loadId: string): Promise<ActivityEntry[]> {
+  const list = await ensureLoaded(loadId)
+  return [...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 }

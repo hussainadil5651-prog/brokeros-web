@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { readUserConfig, getDataByType } from '@/lib/app-sheet'
-import { getClient, extractEmails, createBatches } from '@/lib/google-sheets'
+import { getClient, extractEmails, createBatches, extractSheetId } from '@/lib/google-sheets'
 import { storeBatch, getImportedBatchesByDate } from '../import/store'
 
 async function getAllContactedEmails(): Promise<Set<string>> {
@@ -57,7 +57,8 @@ export async function POST(req: NextRequest) {
   const allEmails: string[] = []
   const sheetDetails: { name: string; tab: string; count: number }[] = []
 
-  for (const sheetId of config.outreachSheetIds) {
+  for (const rawId of config.outreachSheetIds) {
+    const sheetId = extractSheetId(rawId)
     try {
       const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
       const tabs = (meta.data.sheets ?? []).map(s => s.properties?.title).filter(Boolean) as string[]

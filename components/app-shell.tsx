@@ -9,9 +9,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isLogin = pathname === '/login'
   if (isLogin) return <>{children}</>
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen bg-[#f8f7f4]">
       <Sidebar />
-      <div className="flex-1 pl-48">
+      <div className="flex-1 pl-60">
         <div className="fixed right-4 top-3 z-30">
           <GlobalSearch />
         </div>

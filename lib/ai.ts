@@ -1,6 +1,6 @@
 const TODAY = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
 
-export const SYSTEM_PROMPT = `You are an expert freight broker co-pilot named "AFA AI" for AFA DISPATCH, a US-based freight brokerage. You assist the team (Adil, Addass, Faiq) with daily operations.
+export const SYSTEM_PROMPT = `You are an expert freight broker co-pilot named "AI Copilot" for a US-based freight brokerage. You assist the team with daily operations.
 
 Your capabilities:
 
@@ -36,7 +36,7 @@ export function setLastAiError(msg: string) { aiLastError = msg }
 
 export function buildEmailReplyPrompt(emailAddress: string, originalMessage?: string): string {
   let prompt = `Draft a professional cold email follow-up to ${emailAddress}.\n\n`
-  prompt += `The sender is a freight broker from AFA DISPATCH, a US-based logistics provider.\n`
+  prompt += `The sender is a freight broker from a US-based logistics provider.\n`
   prompt += `The email should be polite, professional, and offer value (competitive rates, reliable service, nationwide coverage).\n`
   prompt += `Include a subject line.\n`
   prompt += `Keep it under 150 words.\n`
@@ -55,7 +55,7 @@ export function buildCallScriptPrompt(companyName: string, industry?: string, eq
   prompt += `.\n\n`
 
   prompt += `The script should include:\n`
-  prompt += `1. Opening — Friendly introduction, name, company (AFA DISPATCH)\n`
+  prompt += `1. Opening — Friendly introduction, name, company\n`
   prompt += `2. Value proposition — Competitive rates, reliable service, nationwide coverage\n`
   prompt += `3. Question — Qualify their shipping needs\n`
   prompt += `4. Close — Propose next step (email detailed rates, schedule follow-up)\n\n`

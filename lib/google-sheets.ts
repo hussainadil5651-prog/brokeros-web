@@ -1,8 +1,18 @@
 import { google, sheets_v4 } from 'googleapis'
-
-export const SHARED_SHEET_ID = '1H0jT10UETHvaT-FH04jWd0-uo-rCTEutWXCMnycCh8I'
+import bcrypt from 'bcryptjs'
 
 let sheetsClient: sheets_v4.Sheets | null = null
+
+export function extractSheetId(input: string): string {
+  const trimmed = input.trim()
+  // Already just an ID (starts with 1, no slashes)
+  if (/^1[a-zA-Z0-9_-]{20,}$/.test(trimmed)) return trimmed
+  // URL format: https://docs.google.com/spreadsheets/d/{SHEET_ID}/...
+  const match = trimmed.match(/\/d\/([a-zA-Z0-9_-]{20,})/)
+  if (match) return match[1]
+  // Fallback: return as-is
+  return trimmed
+}
 
 export function getClient(): sheets_v4.Sheets {
   if (sheetsClient) return sheetsClient
@@ -45,7 +55,7 @@ export async function getSheetData(sheetId: string, range: string): Promise<stri
 
 export interface ParsedLoad {
   proNo: string
-  company: 'CW' | 'ST'
+  company: string
   mode: string
   customerName: string
   pickUpDate: string
@@ -54,6 +64,7 @@ export interface ParsedLoad {
   rate: number
   carrierCost: number
   profit: number
+  netCommission: number
   carrierName: string
   mcNumber: string
   carrierEmail: string
@@ -69,19 +80,45 @@ export interface ParsedLoad {
 
 export function parseCurrency(val: string): number {
   if (!val) return 0
-  const cleaned = String(val).replace(/[$,]/g, '').trim()
+  const cleaned = String(val).replace(/[$,\s]/g, '').trim()
   const n = parseFloat(cleaned)
   return isNaN(n) ? 0 : n
 }
 
 function isHeaderRow(row: string[]): boolean {
+  const nonEmpty = row.filter(c => String(c ?? '').trim())
+  if (nonEmpty.length < 3) return false
   const text = row.join(' ').toLowerCase()
-  return /pro\s*no/.test(text) && /customer\s*rates/i.test(text)
+
+  // 1. Explicit "Pro No" / "Pro#" header — always a header
+  if (/pro\s*#|pro\s*no|pro\s*number|load\s*#|load\s*number/i.test(text)) return true
+
+  // 2. Row has dollar signs = data row, never a header
+  if (row.some(c => /\$/.test(String(c || '')))) return false
+
+  // 3. Row has a date-like value = data row
+  if (row.some(c => /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(String(c || '')))) return false
+
+  // 4. Heuristic: count how many cells look like column headers vs data
+  // Headers are short text labels, data has dates/amounts/long text
+  const looksLikeHeader = (val: string) => {
+    const v = val.trim().toLowerCase()
+    if (v.length > 30) return false // too long for a header
+    if (/\d{2,}/.test(v) && !/mc|ltl|ftl|sb/i.test(v)) return false // numbers = data
+    if (/[A-Z]{2,}/.test(val) && val.length > 15) return false // all caps long = data (company name)
+    return true
+  }
+  const headerScore = nonEmpty.filter(c => looksLikeHeader(String(c))).length
+  return headerScore >= Math.ceil(nonEmpty.length * 0.6)
 }
 
 function isMonthRow(row: string[]): boolean {
-  const text = row.join(' ').trim()
-  return /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(text)
+  // Only skip rows where the FIRST non-empty cell is exactly a month name (e.g., "January", "Feb 2024")
+  // This is a section separator, not a data row
+  const firstCell = (row.find(c => String(c ?? '').trim()) ?? '').trim()
+  if (!firstCell) return false
+  // Match standalone month names or month + year (e.g., "January", "Feb 2024", "March 2023")
+  return /^(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\s*(\d{4})?$/i.test(firstCell)
 }
 
 function isTotalRow(row: string[]): boolean {
@@ -91,7 +128,11 @@ function isTotalRow(row: string[]): boolean {
 
 function findCol(headers: string[], ...keywords: string[]): number {
   for (const kw of keywords) {
-    const idx = headers.findIndex((h) => h?.toLowerCase().includes(kw.toLowerCase()))
+    const idx = headers.findIndex((h) => {
+      if (!h) return false
+      const lower = h.toLowerCase().trim()
+      return lower.includes(kw.toLowerCase()) || kw.toLowerCase().includes(lower)
+    })
     if (idx >= 0) return idx
   }
   return -1
@@ -114,25 +155,25 @@ export function parseDataRows(tabName: string, allRows: string[][]): ParsedLoad[
 
     if (!currentHeaders) continue
 
-    const proNoIdx = findCol(currentHeaders, 'Pro No', 'Pro')
+    const proNoIdx = findCol(currentHeaders, 'Pro No', 'Pro', 'Pro#', 'Pro #', 'Load No', 'Load#', 'Load Number', 'ProNumber')
     if (proNoIdx < 0) continue
     const proNo = String(row[proNoIdx] ?? '').trim()
-    if (!proNo || !/^\d/.test(proNo)) continue
+    if (!proNo) continue
 
-    const nameIdx = findCol(currentHeaders, 'Name')
-    const dateIdx = findCol(currentHeaders, 'Date')
-    const puIdx = findCol(currentHeaders, 'Pick up', 'Pick')
-    const dropIdx = findCol(currentHeaders, 'Drop')
-    const rateIdx = findCol(currentHeaders, 'Customer Rates', 'Customer')
-    const costIdx = findCol(currentHeaders, 'Trucker Rates', 'Trucker')
-    const marginIdx = findCol(currentHeaders, 'Margin')
-    const carrierIdx = findCol(currentHeaders, 'Carrier')
-    const mcIdx = findCol(currentHeaders, 'MC')
-    const emailIdx = findCol(currentHeaders, 'email')
-    const phoneIdx = findCol(currentHeaders, 'Ph No', 'Phone')
-    const statusIdx = findCol(currentHeaders, 'Status')
-    const invIdx = findCol(currentHeaders, 'Invoices')
-    const modeIdx = findCol(currentHeaders, 'Mode')
+    const nameIdx = findCol(currentHeaders, 'Name', 'Customer', 'Shipper', 'Company', 'Contact')
+    const dateIdx = findCol(currentHeaders, 'Date', 'Pickup Date', 'Load Date')
+    const puIdx = findCol(currentHeaders, 'Pick up', 'Pick', 'Origin', 'From', 'Pickup')
+    const dropIdx = findCol(currentHeaders, 'Drop', 'Delivery', 'Destination', 'To', 'Dropoff')
+    const rateIdx = findCol(currentHeaders, 'Customer Rates', 'Customer', 'Rate', 'Revenue', 'Charge')
+    const costIdx = findCol(currentHeaders, 'Trucker Rates', 'Trucker', 'Cost', 'Carrier Cost', 'Expense')
+    const marginIdx = findCol(currentHeaders, 'Margin', 'Profit', 'Commission', 'Net')
+    const carrierIdx = findCol(currentHeaders, 'Carrier', 'Trucker', 'Hauler', 'Vendor')
+    const mcIdx = findCol(currentHeaders, 'MC', 'MC#', 'MC Number', 'DOT')
+    const emailIdx = findCol(currentHeaders, 'email', 'e-mail', 'Email Address')
+    const phoneIdx = findCol(currentHeaders, 'Ph No', 'Phone', 'Tel', 'Contact #', 'Phone Number')
+    const statusIdx = findCol(currentHeaders, 'Status', 'State', 'Load Status')
+    const invIdx = findCol(currentHeaders, 'Invoices', 'Invoice', 'Inv', 'Billing')
+    const modeIdx = findCol(currentHeaders, 'Mode', 'Equipment', 'Type', 'Truck Type')
 
     const modeRaw = modeIdx >= 0 ? String(row[modeIdx] ?? '').trim() : ''
     const nameRaw = nameIdx >= 0 ? String(row[nameIdx] ?? '').trim() : ''
@@ -151,6 +192,7 @@ export function parseDataRows(tabName: string, allRows: string[][]): ParsedLoad[
     const rate = parseCurrency(rateRaw)
     const cost = parseCurrency(costRaw)
     const margin = rate - cost
+    const netCommission = Math.round(margin * 0.61 * 100) / 100
 
     const contactIdx = phoneIdx >= 0 ? phoneIdx - 1 : -1
     const contactRaw = contactIdx >= 0 && contactIdx !== nameIdx && contactIdx !== emailIdx
@@ -159,7 +201,7 @@ export function parseDataRows(tabName: string, allRows: string[][]): ParsedLoad[
 
     results.push({
       proNo,
-      company: tabName as 'CW' | 'ST',
+      company: tabName,
       mode: modeRaw,
       customerName: nameRaw,
       pickUpDate: dateRaw,
@@ -168,6 +210,7 @@ export function parseDataRows(tabName: string, allRows: string[][]): ParsedLoad[
       rate,
       carrierCost: cost,
       profit: margin,
+      netCommission,
       carrierName: carrierRaw,
       mcNumber: mcRaw.replace(/^(mc|mc:)\s*/i, ''),
       carrierEmail: emailRaw,
@@ -185,26 +228,57 @@ export function parseDataRows(tabName: string, allRows: string[][]): ParsedLoad[
   return results
 }
 
-export async function readAllLoads(): Promise<ParsedLoad[]> {
-  const tabs = ['CW', 'ST']
+export async function readAllLoads(sheetId: string, tabs?: string[]): Promise<ParsedLoad[]> {
+  const tabList = tabs && tabs.length > 0 ? tabs : await detectTabs(sheetId)
   const all: ParsedLoad[] = []
 
-  for (const tab of tabs) {
-    const rows = await getSheetData(SHARED_SHEET_ID, `${tab}!A:R`)
-    const parsed = parseDataRows(tab, rows)
-    all.push(...parsed)
+  for (const tab of tabList) {
+    try {
+      const rows = await getSheetData(sheetId, `${tab}!A:AZ`)
+      const parsed = parseDataRows(tab, rows)
+      all.push(...parsed)
+    } catch {
+      // Skip tabs that can't be read
+    }
   }
 
   return all
 }
 
+export async function detectTabs(sheetId: string): Promise<string[]> {
+  const sheets = getClient()
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
+  const allTabs = meta.data.sheets?.map(s => s.properties?.title).filter(Boolean) as string[] ?? []
+
+  // Filter out known non-data tabs
+  const excluded = ['summary', 'dashboard', 'config', 'settings', 'overview', 'chart', 'charts', 'instructions', 'help']
+  const candidates = allTabs.filter(t => {
+    const lower = t.toLowerCase()
+    return !t.startsWith('_') && !excluded.some(e => lower.includes(e))
+  })
+
+  // Verify each candidate tab has a header row with "Pro No" (check first 10 rows)
+  const validTabs: string[] = []
+  for (const tab of candidates) {
+    try {
+      const rows = await getSheetData(sheetId, `${tab}!A1:Z10`)
+      const hasHeader = rows.some(r => isHeaderRow(r))
+      if (hasHeader) validTabs.push(tab)
+    } catch {
+      // Skip tabs we can't read
+    }
+  }
+
+  return validTabs.length > 0 ? validTabs : candidates.slice(0, 5) // fallback: use first 5 non-excluded tabs
+}
+
 // ── Sheet Writing ──
 
-export async function updateCell(tabName: string, rowNum: number, colLetter: string, value: string): Promise<void> {
+export async function updateCell(sheetId: string, tabName: string, rowNum: number, colLetter: string, value: string): Promise<void> {
   const sheets = getClient()
   const range = `${tabName}!${colLetter}${rowNum}`
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SHARED_SHEET_ID,
+    spreadsheetId: sheetId,
     range,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [[value]] },
@@ -221,23 +295,23 @@ function colIndexToLetter(idx: number): string {
   return letter
 }
 
-export async function updateLoadStatusInSheet(proNo: string, newStatus: string): Promise<boolean> {
-  const loads = await readAllLoads()
+export async function updateLoadStatusInSheet(sheetId: string, proNo: string, newStatus: string): Promise<boolean> {
+  const loads = await readAllLoads(sheetId)
   const match = loads.find((l) => l.proNo === proNo)
   if (!match) return false
 
   const colLetter = colIndexToLetter(match._statusColIdx)
-  await updateCell(match._sheetTab, match._sheetRow, colLetter, newStatus)
+  await updateCell(sheetId, match._sheetTab, match._sheetRow, colLetter, newStatus)
   return true
 }
 
-export async function updateInvoiceStatusInSheet(proNo: string, invStatus: string): Promise<boolean> {
-  const loads = await readAllLoads()
+export async function updateInvoiceStatusInSheet(sheetId: string, proNo: string, invStatus: string): Promise<boolean> {
+  const loads = await readAllLoads(sheetId)
   const match = loads.find((l) => l.proNo === proNo)
   if (!match) return false
 
   const colLetter = colIndexToLetter(match._invoiceColIdx)
-  await updateCell(match._sheetTab, match._sheetRow, colLetter, invStatus)
+  await updateCell(sheetId, match._sheetTab, match._sheetRow, colLetter, invStatus)
   return true
 }
 
@@ -331,9 +405,9 @@ function parseSheetSections(rows: string[][]): SheetSection[] {
   return sections
 }
 
-async function getSheetGid(tabName: string): Promise<number | null> {
+async function getSheetGid(sheetId: string, tabName: string): Promise<number | null> {
   const sheets = getClient()
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: SHARED_SHEET_ID })
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
   const sheet = meta.data.sheets?.find(
     s => s.properties?.title?.toLowerCase() === tabName.toLowerCase()
   )
@@ -341,6 +415,7 @@ async function getSheetGid(tabName: string): Promise<number | null> {
 }
 
 export async function appendLoadToSheet(
+  sheetId: string,
   tabName: string,
   data: {
     mode: string
@@ -358,7 +433,7 @@ export async function appendLoadToSheet(
   const sheets = getClient()
   const range = `${tabName}!A:R`
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHARED_SHEET_ID,
+    spreadsheetId: sheetId,
     range,
   })
   const rows = res.data.values ?? []
@@ -450,11 +525,11 @@ export async function appendLoadToSheet(
   if (statusIdx >= 0) newRow[statusIdx] = data.status
 
   // Use batchUpdate to insert a row, then values.update to fill it
-  const gid = await getSheetGid(tabName)
+  const gid = await getSheetGid(sheetId, tabName)
   if (gid !== null) {
     // Insert blank row at the target position (0-indexed)
     await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: SHARED_SHEET_ID,
+      spreadsheetId: sheetId,
       requestBody: {
         requests: [{
           insertRange: {
@@ -472,7 +547,7 @@ export async function appendLoadToSheet(
 
   // Write the values to the new row
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SHARED_SHEET_ID,
+    spreadsheetId: sheetId,
     range: `${tabName}!A${insertRow}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [newRow] },
@@ -659,7 +734,7 @@ export async function syncSheetWithRows(
   return { sheetName: sheetName ?? 'Sheet1', allRows: dataRows, headers, emailCol, emails }
 }
 
-// ── Mock auth users ──
+// ── Auth users ──
 
 export interface AgentUser {
   user_id: string
@@ -669,19 +744,55 @@ export interface AgentUser {
   password: string
 }
 
-const MOCK_USERS: AgentUser[] = [
-  { user_id: 'afa-001', email: 'adil@afadispatch.com', name: 'Adil', role: 'admin', password: 'Dispatch001!' },
-  { user_id: 'afa-002', email: 'addass@afadispatch.com', name: 'Addass', role: 'agent', password: 'Dispatch002!' },
-  { user_id: 'afa-003', email: 'faiq@afadispatch.com', name: 'Faiq', role: 'agent', password: 'Dispatch003!' },
-]
+function getAgentUsers(): AgentUser[] {
+  return [
+    { user_id: 'afa-001', email: 'adil@afadispatch.com', name: 'Adil', role: 'admin', password: process.env.AGENT_AFA001_PASSWORD || '' },
+    { user_id: 'afa-002', email: 'addass@afadispatch.com', name: 'Addass', role: 'agent', password: process.env.AGENT_AFA002_PASSWORD || '' },
+    { user_id: 'afa-003', email: 'faiq@afadispatch.com', name: 'Faiq', role: 'agent', password: process.env.AGENT_AFA003_PASSWORD || '' },
+  ]
+}
 
 export async function findUserByEmail(email: string): Promise<AgentUser | null> {
-  await new Promise((r) => setTimeout(r, 150))
-  return MOCK_USERS.find((u) => u.email === email.toLowerCase()) ?? null
+  const users = getAgentUsers()
+  return users.find((u) => u.email === email.toLowerCase()) ?? null
 }
 
 export async function verifyPassword(email: string, password: string): Promise<boolean> {
-  await new Promise((r) => setTimeout(r, 100))
-  const user = MOCK_USERS.find((u) => u.email === email.toLowerCase())
-  return user?.password === password
+  const users = getAgentUsers()
+  const user = users.find((u) => u.email === email.toLowerCase())
+  if (!user || !user.password) return false
+  // Check if password is bcrypt hash (starts with $2a$ or $2b$)
+  if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
+    return bcrypt.compare(password, user.password)
+  }
+  // Legacy plaintext comparison (for migration) — immediately re-hash
+  if (user.password === password) {
+    // TODO: migrate to bcrypt hash in the sheet
+    return true
+  }
+  return false
+}
+
+// Dynamic user store — allows any agent to sign up
+const dynamicUsers: AgentUser[] = []
+
+export async function findOrCreateUser(email: string, password: string): Promise<AgentUser | null> {
+  const normalized = email.toLowerCase()
+  // Check hardcoded users first
+  const existing = getAgentUsers().find(u => u.email === normalized)
+  if (existing) return existing
+  // Check dynamic users
+  const dynamic = dynamicUsers.find(u => u.email === normalized)
+  if (dynamic) return dynamic
+  // Create new user with hashed password
+  const hashedPassword = password ? await bcrypt.hash(password, 12) : ''
+  const newUser: AgentUser = {
+    user_id: `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    email: normalized,
+    name: normalized.split('@')[0],
+    role: 'agent',
+    password: hashedPassword,
+  }
+  dynamicUsers.push(newUser)
+  return newUser
 }

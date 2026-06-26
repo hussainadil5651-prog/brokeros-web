@@ -1,16 +1,7 @@
 import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import GoogleProvider from 'next-auth/providers/google'
-import { findUserByEmail, verifyPassword } from '@/lib/google-sheets'
-
-const ALLOWED_EMAILS = ['adil@afadispatch.com', 'adilhussainwork2@gmail.com', 'addass@afadispatch.com', 'faiq@afadispatch.com']
-
-const USER_MAP: Record<string, { name: string; role: string }> = {
-  'adil@afadispatch.com': { name: 'Adil', role: 'admin' },
-  'adilhussainwork2@gmail.com': { name: 'Adil', role: 'admin' },
-  'addass@afadispatch.com': { name: 'Addass', role: 'agent' },
-  'faiq@afadispatch.com': { name: 'Faiq', role: 'agent' },
-}
+import { findUserByEmail, verifyPassword, findOrCreateUser } from '@/lib/google-sheets'
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -22,61 +13,55 @@ export const authOptions: NextAuthOptions = {
       id: 'credentials',
       name: 'Credentials',
       credentials: {
-        email: { label: 'Email', type: 'email', placeholder: 'adil@afadispatch.com' },
+        email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
-
         const user = await findUserByEmail(credentials.email)
-        if (!user) return null
-
+        if (!user) {
+          // Allow signup: if user doesn't exist and password meets minimum, create them
+          if (credentials.password.length >= 6) {
+            const newUser = await findOrCreateUser(credentials.email, credentials.password)
+            if (newUser) return { id: newUser.user_id, email: newUser.email, name: newUser.name, role: newUser.role }
+          }
+          return null
+        }
         const valid = await verifyPassword(credentials.email, credentials.password)
         if (!valid) return null
-
-        return {
-          id: user.user_id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-        }
+        return { id: user.user_id, email: user.email, name: user.name, role: user.role }
       },
     }),
   ],
-  session: {
-    strategy: 'jwt',
-    maxAge: 24 * 60 * 60,
-  },
+  session: { strategy: 'jwt', maxAge: 24 * 60 * 60 },
   callbacks: {
     async signIn({ user, account }) {
       if (account?.provider === 'google') {
         const email = user.email?.toLowerCase()
-        if (!email || !ALLOWED_EMAILS.includes(email)) return false
-        const info = USER_MAP[email]
-        user.name = info.name
-        user.role = info.role
+        if (!email) return false
+        // Auto-create user for any Google sign-in
+        const existing = await findUserByEmail(email)
+        if (existing) {
+          user.name = existing.name
+          user.role = existing.role
+        } else {
+          // New Google user — create account
+          const newUser = await findOrCreateUser(email, '')
+          if (newUser) { user.name = newUser.name; user.role = newUser.role }
+        }
         return true
       }
       return true
     },
     async jwt({ token, user }) {
-      if (user) {
-        token.role = user.role
-        token.id = user.id ?? user.email
-      }
+      if (user) { token.role = user.role; token.id = user.id ?? user.email }
       return token
     },
     async session({ session, token }) {
-      if (session.user) {
-        session.user.role = token.role ?? ''
-        session.user.id = token.id ?? ''
-      }
+      if (session.user) { session.user.role = token.role ?? ''; session.user.id = token.id ?? '' }
       return session
     },
   },
-  pages: {
-    signIn: '/login',
-    error: '/login',
-  },
-  secret: process.env.NEXTAUTH_SECRET ?? 'afa-dispatch-dev-secret-change-in-prod',
+  pages: { signIn: '/login', error: '/login' },
+  secret: process.env.NEXTAUTH_SECRET,
 }

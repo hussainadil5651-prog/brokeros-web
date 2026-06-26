@@ -251,23 +251,47 @@ export function getActiveLead(email: string, userId: string): ActiveLead | null 
   return lead && lead.userId === userId ? lead : null
 }
 
-const comments = new Map<string, EmailComment[]>()
+const commentsCache = new Map<string, EmailComment[]>()
+let commentsLoaded = false
 
-export function addComment(email: string, batchId: string, text: string, author: string): EmailComment {
+async function ensureCommentsLoaded(): Promise<void> {
+  if (commentsLoaded) return
+  commentsLoaded = true
+  const all = await readData<EmailComment>('_shared', 'comments')
+  for (const c of all) {
+    const key = `${c.email}|${c.batchId}`
+    const list = commentsCache.get(key) ?? []
+    list.push(c)
+    commentsCache.set(key, list)
+  }
+}
+
+async function persistComments(): Promise<void> {
+  const all: EmailComment[] = []
+  for (const list of commentsCache.values()) {
+    all.push(...list)
+  }
+  await writeData('_shared', 'comments', all)
+}
+
+export async function addComment(email: string, batchId: string, text: string, author: string): Promise<EmailComment> {
+  await ensureCommentsLoaded()
   const key = `${email}|${batchId}`
-  const list = comments.get(key) ?? []
+  const list = commentsCache.get(key) ?? []
   const comment: EmailComment = {
     id: `cmt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     email, batchId, text, createdAt: new Date().toISOString(), author,
   }
   list.push(comment)
-  comments.set(key, list)
+  commentsCache.set(key, list)
+  await persistComments()
   return comment
 }
 
-export function getComments(email: string, batchId: string): EmailComment[] {
+export async function getComments(email: string, batchId: string): Promise<EmailComment[]> {
+  await ensureCommentsLoaded()
   const key = `${email}|${batchId}`
-  return comments.get(key) ?? []
+  return commentsCache.get(key) ?? []
 }
 
 // ── Follow-ups ──

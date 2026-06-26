@@ -1,4 +1,3 @@
-import { generateMockBatches, getBatchById } from './batch-engine'
 import { getEmailResponse, getComments, isSuppressed, getActiveLead } from './response-store'
 import { importedBatches } from '@/app/api/batches/import/store'
 
@@ -7,7 +6,7 @@ export interface EmailSearchResult {
   batchId: string
   batchNumber: number
   batchDate: string
-  source: 'mock' | 'imported'
+  source: 'sheet' | 'imported'
   response: { type: string; notes: string; followUpDate: string | null } | null
   comments: { text: string; author: string; createdAt: string }[]
   isSuppressed: boolean
@@ -21,33 +20,6 @@ export async function searchEmails(query: string, userId: string): Promise<Email
   const results: EmailSearchResult[] = []
   const seen = new Set<string>()
 
-  const { batches: mockBatches } = generateMockBatches(userId)
-  for (const summary of mockBatches) {
-    const fullBatch = getBatchById(summary.id)
-    if (!fullBatch) continue
-    for (const email of fullBatch.emails) {
-      if (seen.has(email)) continue
-      if (!email.toLowerCase().includes(q)) continue
-      seen.add(email)
-      const response = await getEmailResponse(fullBatch.id, email, userId)
-      const emailComments = getComments(email, fullBatch.id)
-      const suppressed = await isSuppressed(email, userId)
-      const lead = getActiveLead(email, userId)
-      results.push({
-        email,
-        batchId: fullBatch.id,
-        batchNumber: fullBatch.batchNumber,
-        batchDate: fullBatch.batchDate,
-        source: 'mock',
-        response: response ? { type: response.response, notes: response.notes, followUpDate: response.followUpDate } : null,
-        comments: emailComments.map(c => ({ text: c.text, author: c.author, createdAt: c.createdAt })),
-        isSuppressed: suppressed,
-        isActiveLead: !!lead,
-        activeLeadStatus: lead?.status ?? null,
-      })
-    }
-  }
-
   for (const [id, batch] of importedBatches) {
     if (batch.assignedTo !== userId) continue
     for (const email of batch.emails) {
@@ -55,7 +27,7 @@ export async function searchEmails(query: string, userId: string): Promise<Email
       if (!email.toLowerCase().includes(q)) continue
       seen.add(email)
       const response = await getEmailResponse(id, email, userId)
-      const emailComments = getComments(email, id)
+      const emailComments = await getComments(email, id)
       const suppressed = await isSuppressed(email, userId)
       const lead = getActiveLead(email, userId)
       results.push({
@@ -99,7 +71,7 @@ export function searchGlobal(query: string, loads: any[], carriers: any[], invoi
   for (const c of carriers) {
     const match = c.companyName?.toLowerCase().includes(q) || c.mcNumber?.toLowerCase().includes(q)
     if (match) {
-      results.push({ type: 'carrier', label: c.companyName, subtitle: `MC# ${c.mcNumber || '—'}`, href: `/carriers/${c.id}`, badge: c.insuranceStatus })
+      results.push({ type: 'carrier', label: c.companyName, subtitle: `MC# ${c.mcNumber || '—'}`, href: `/carriers`, badge: c.insuranceStatus })
     }
   }
 

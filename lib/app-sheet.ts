@@ -27,7 +27,7 @@ async function ensureTabs(): Promise<void> {
 
   const needed: { title: string; cols: string[] }[] = [
     { title: DATA_TAB, cols: ['userId', 'type', 'data', 'updatedAt'] },
-    { title: CONFIG_TAB, cols: ['userId', 'name', 'outreachSheetIds'] },
+    { title: CONFIG_TAB, cols: ['userId', 'name', 'outreachSheetIds', 'meta'] },
   ]
 
   for (const tab of needed) {
@@ -210,7 +210,7 @@ export async function getDataByType<T>(type: string): Promise<{ userId: string; 
   return results
 }
 
-export async function readUserConfig(userId: string): Promise<{ name: string; outreachSheetIds: string[] } | null> {
+export async function readUserConfig(userId: string): Promise<{ name: string; outreachSheetIds: string[]; meta?: Record<string, any> } | null> {
   const sheetId = getAppSheetId()
   if (!sheetId) return null
 
@@ -219,7 +219,7 @@ export async function readUserConfig(userId: string): Promise<{ name: string; ou
   const sheets = getClient()
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: `${CONFIG_TAB}!A:C`,
+    range: `${CONFIG_TAB}!A:D`,
   })
 
   const rows = res.data.values ?? []
@@ -227,15 +227,21 @@ export async function readUserConfig(userId: string): Promise<{ name: string; ou
   const userIdIdx = headerRow.indexOf('userId')
   const nameIdx = headerRow.indexOf('name')
   const sheetsIdx = headerRow.indexOf('outreachSheetIds')
+  const metaIdx = headerRow.indexOf('meta')
 
   if (userIdIdx < 0) return null
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i]
     if ((row[userIdIdx] ?? '').toLowerCase() === userId.toLowerCase()) {
+      let meta: Record<string, any> | undefined
+      if (metaIdx >= 0 && row[metaIdx]) {
+        try { meta = JSON.parse(row[metaIdx]) } catch {}
+      }
       return {
         name: row[nameIdx] ?? '',
         outreachSheetIds: row[sheetsIdx] ? row[sheetsIdx].split(',').map((s: string) => s.trim()).filter(Boolean) : [],
+        meta,
       }
     }
   }
@@ -247,6 +253,7 @@ export async function writeUserConfig(
   userId: string,
   name: string,
   outreachSheetIds: string[],
+  meta?: Record<string, any>,
 ): Promise<void> {
   const sheetId = getAppSheetId()
   if (!sheetId) return
@@ -256,7 +263,7 @@ export async function writeUserConfig(
   const sheets = getClient()
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: `${CONFIG_TAB}!A:C`,
+    range: `${CONFIG_TAB}!A:D`,
   })
 
   const rows = res.data.values ?? []
@@ -273,19 +280,19 @@ export async function writeUserConfig(
     }
   }
 
-  const newRow = [userId, name, outreachSheetIds.join(',')]
+  const newRow = [userId, name, outreachSheetIds.join(','), meta ? JSON.stringify(meta) : '']
 
   if (foundRow > 0) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: sheetId,
-      range: `${CONFIG_TAB}!A${foundRow}:C${foundRow}`,
+      range: `${CONFIG_TAB}!A${foundRow}:D${foundRow}`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [newRow] },
     })
   } else {
     await sheets.spreadsheets.values.append({
       spreadsheetId: sheetId,
-      range: `${CONFIG_TAB}!A:C`,
+      range: `${CONFIG_TAB}!A:D`,
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [newRow] },
     })

@@ -9,6 +9,7 @@ export interface ImportedBatch {
   status: string
   totalEmails: number
   createdAt: string
+  sent?: boolean
 }
 
 const STORE_KEY = 'batches'
@@ -26,8 +27,7 @@ async function ensureAllLoaded(): Promise<void> {
   allLoaded = true
 }
 
-async function ensureLoaded(userId: string): Promise<void> {
-  if (importedBatches.size > 0) return
+async function ensureLoaded(_userId: string): Promise<void> {
   await ensureAllLoaded()
 }
 

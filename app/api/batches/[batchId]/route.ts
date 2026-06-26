@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { getBatchById } from '@/lib/batch-engine'
 import { getImportedBatch } from '../import/store'
 
 export async function GET(
@@ -19,8 +18,5 @@ export async function GET(
     return NextResponse.json({ batch: imported })
   }
 
-  const batch = getBatchById(params.batchId)
-  if (!batch) return NextResponse.json({ error: 'Batch not found' }, { status: 404 })
-
-  return NextResponse.json({ batch })
+  return NextResponse.json({ error: 'Batch not found' }, { status: 404 })
 }

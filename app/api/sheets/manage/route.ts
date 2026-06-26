@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { savedLinks, getAllLinks, removeLink } from './store'
+import { getAllLinks, removeLink, addLink, hasLink } from './store'
 
 export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user?.email) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  return NextResponse.json({ sheets: getAllLinks() })
+  const sheets = await getAllLinks()
+  return NextResponse.json({ sheets })
 }
 
 export async function POST(req: NextRequest) {
@@ -22,22 +23,16 @@ export async function POST(req: NextRequest) {
     const { action, id, sheetId, name } = body
 
     if (action === 'delete' && id) {
-      removeLink(id)
+      await removeLink(id)
       return NextResponse.json({ deleted: true })
     }
 
     if (action === 'add' && sheetId) {
-      const uniqueKey = sheetId
-      if (savedLinks.has(uniqueKey)) {
+      const exists = await hasLink(sheetId)
+      if (exists) {
         return NextResponse.json({ error: 'Sheet already added' }, { status: 409 })
       }
-      const entry = {
-        id: uniqueKey,
-        sheetId,
-        name: name || sheetId,
-        addedAt: new Date().toISOString(),
-      }
-      savedLinks.set(uniqueKey, entry)
+      const entry = await addLink(sheetId, name || sheetId)
       return NextResponse.json({ sheet: entry })
     }
 
