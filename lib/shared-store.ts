@@ -130,7 +130,11 @@ export async function refreshFromSheet(sheetId: string, tabs?: string[]): Promis
     company: p.company,
     _sheetRow: p._sheetRow,
     _sheetTab: p._sheetTab,
-  }))
+    mcNumber: p.mcNumber,
+    carrierContact: p.carrierContact,
+    carrierPhone: p.carrierPhone,
+    carrierEmail: p.carrierEmail,
+  } as any))
 
   loadCache.set(sheetId, { loads, ts: Date.now() })
   return loads
@@ -158,17 +162,29 @@ export function extractCarriers(loads: Load[]): Carrier[] {
   const seen = new Map<string, Carrier>()
   let counter = 0
   for (const l of loads) {
-    if (!l.carrierName || seen.has(l.carrierName)) continue
+    if (!l.carrierName) continue
+    const key = l.carrierName.toLowerCase()
+    if (seen.has(key)) {
+      // Merge equipment types from additional loads
+      const existing = seen.get(key)!
+      if (l.equipmentType && !existing.equipmentTypes.includes(l.equipmentType)) {
+        existing.equipmentTypes.push(l.equipmentType)
+      }
+      const lane = `${l.pickUpLocation} → ${l.deliveryLocation}`
+      if (lane !== ' → ' && !existing.lanes.includes(lane)) existing.lanes.push(lane)
+      continue
+    }
     counter++
-    seen.set(l.carrierName, {
+    const lane = `${l.pickUpLocation} → ${l.deliveryLocation}`
+    seen.set(key, {
       id: `car-${counter}`,
-      mcNumber: '',
+      mcNumber: (l as any).mcNumber || '',
       companyName: l.carrierName,
-      contactName: '',
-      phone: '',
-      email: '',
+      contactName: (l as any).carrierContact || '',
+      phone: (l as any).carrierPhone || '',
+      email: (l as any).carrierEmail || '',
       equipmentTypes: l.equipmentType ? [l.equipmentType] : [],
-      lanes: [],
+      lanes: lane !== ' → ' ? [lane] : [],
       insuranceExpiry: null,
       insuranceStatus: 'unknown',
       rating: 3,

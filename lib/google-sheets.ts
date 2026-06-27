@@ -140,14 +140,22 @@ function isTotalRow(row: string[]): boolean {
 }
 
 function findCol(headers: string[], ...keywords: string[]): number {
+  // Pass 1: exact match
+  for (const kw of keywords) {
+    const idx = headers.findIndex((h) => h?.toLowerCase().trim() === kw.toLowerCase())
+    if (idx >= 0) return idx
+  }
+  // Pass 2: startsWith match
   for (const kw of keywords) {
     const kwLower = kw.toLowerCase()
-    const idx = headers.findIndex((h) => {
-      if (!h) return false
-      const lower = h.toLowerCase().trim()
-      // Only match if header contains keyword (not reverse — avoids "To" matching "Total")
-      return lower.includes(kwLower)
-    })
+    const idx = headers.findIndex((h) => h?.toLowerCase().trim().startsWith(kwLower))
+    if (idx >= 0) return idx
+  }
+  // Pass 3: includes match (fallback, but skip very short keywords to avoid false matches)
+  for (const kw of keywords) {
+    if (kw.length < 4) continue // skip "MC", "To", "Rate" etc in includes pass
+    const kwLower = kw.toLowerCase()
+    const idx = headers.findIndex((h) => h?.toLowerCase().trim().includes(kwLower))
     if (idx >= 0) return idx
   }
   return -1
@@ -170,25 +178,26 @@ export function parseDataRows(tabName: string, allRows: string[][]): ParsedLoad[
 
     if (!currentHeaders) continue
 
-    const proNoIdx = findCol(currentHeaders, 'Pro No', 'Pro', 'Pro#', 'Pro #', 'Load No', 'Load#', 'Load Number', 'ProNumber')
+    const proNoIdx = findCol(currentHeaders, 'Pro No', 'Pro#', 'Pro #', 'Load No', 'Load#', 'Load Number', 'ProNumber', 'Pro')
     if (proNoIdx < 0) continue
     const proNo = String(row[proNoIdx] ?? '').trim()
     if (!proNo) continue
 
-    const nameIdx = findCol(currentHeaders, 'Name', 'Customer', 'Shipper', 'Company', 'Contact')
-    const dateIdx = findCol(currentHeaders, 'Date', 'Pickup Date', 'Load Date')
-    const puIdx = findCol(currentHeaders, 'Pick up', 'Pick', 'Origin', 'From', 'Pickup')
-    const dropIdx = findCol(currentHeaders, 'Drop', 'Delivery', 'Destination', 'To', 'Dropoff')
-    const rateIdx = findCol(currentHeaders, 'Customer Rates', 'Customer', 'Rate', 'Revenue', 'Charge')
-    const costIdx = findCol(currentHeaders, 'Trucker Rates', 'Trucker', 'Cost', 'Carrier Cost', 'Expense')
+    const nameIdx = findCol(currentHeaders, 'Customer Name', 'Contact Name', 'Shipper Name', 'Name', 'Customer', 'Shipper', 'Company', 'Contact')
+    const dateIdx = findCol(currentHeaders, 'Date', 'Pickup Date', 'Load Date', 'Ship Date')
+    const puIdx = findCol(currentHeaders, 'Pick Up', 'Pickup', 'Origin', 'Pick', 'From')
+    const dropIdx = findCol(currentHeaders, 'Drop', 'Dropoff', 'Delivery', 'Destination', 'Drop Off')
+    const rateIdx = findCol(currentHeaders, 'Revenue', 'Customer Rate', 'Customer Rates', 'Charge', 'Rate', 'Freight')
+    const costIdx = findCol(currentHeaders, 'Trucker Rate', 'Trucker Rates', 'Carrier Cost', 'Trucker', 'Cost', 'Expense')
     const marginIdx = findCol(currentHeaders, 'Margin', 'Profit', 'Commission', 'Net')
-    const carrierIdx = findCol(currentHeaders, 'Carrier', 'Trucker', 'Hauler', 'Vendor')
-    const mcIdx = findCol(currentHeaders, 'MC', 'MC#', 'MC Number', 'DOT')
-    const emailIdx = findCol(currentHeaders, 'email', 'e-mail', 'Email Address')
-    const phoneIdx = findCol(currentHeaders, 'Ph No', 'Phone', 'Tel', 'Contact #', 'Phone Number')
+    const carrierIdx = findCol(currentHeaders, 'Carrier Name', 'Carrier', 'Trucker Name', 'Hauler', 'Vendor', 'Trucker')
+    const mcIdx = findCol(currentHeaders, 'MC#', 'MC Number', 'MC', 'DOT')
+    const emailIdx = findCol(currentHeaders, 'Email Address', 'E-mail', 'Email', 'email')
+    const phoneIdx = findCol(currentHeaders, 'Phone Number', 'Ph No', 'Phone', 'Tel', 'Contact #')
+    const contactIdx = findCol(currentHeaders, 'Contact Name', 'Contact', 'Agent')
     const statusIdx = findCol(currentHeaders, 'Status', 'State', 'Load Status')
     const invIdx = findCol(currentHeaders, 'Invoices', 'Invoice', 'Inv', 'Billing')
-    const modeIdx = findCol(currentHeaders, 'Mode', 'Equipment', 'Type', 'Truck Type')
+    const modeIdx = findCol(currentHeaders, 'Equipment', 'Mode', 'Type', 'Truck Type')
 
     const modeRaw = modeIdx >= 0 ? String(row[modeIdx] ?? '').trim() : ''
     const nameRaw = nameIdx >= 0 ? String(row[nameIdx] ?? '').trim() : ''
@@ -209,7 +218,6 @@ export function parseDataRows(tabName: string, allRows: string[][]): ParsedLoad[
     const margin = rate - cost
     const netCommission = Math.round(margin * 0.61 * 100) / 100
 
-    const contactIdx = phoneIdx >= 0 ? phoneIdx - 1 : -1
     const contactRaw = contactIdx >= 0 && contactIdx !== nameIdx && contactIdx !== emailIdx
       ? String(row[contactIdx] ?? '').trim()
       : ''
@@ -512,18 +520,18 @@ export async function appendLoadToSheet(
   if (headers.length === 0) return null
 
   // Map columns using the same findCol as the parser
-  const proNoIdx = findCol(headers, 'Pro No', 'Pro')
-  const modeIdx = findCol(headers, 'Mode')
-  const nameIdx = findCol(headers, 'Name')
-  const dateIdx = findCol(headers, 'Date')
-  const puIdx = findCol(headers, 'Pick up', 'Pick')
-  const dropIdx = findCol(headers, 'Drop')
-  const rateIdx = findCol(headers, 'Customer Rates', 'Customer')
-  const costIdx = findCol(headers, 'Trucker Rates', 'Trucker')
-  const carrierIdx = findCol(headers, 'Carrier')
-  const mcIdx = findCol(headers, 'MC')
-  const statusIdx = findCol(headers, 'Status')
-  const invIdx = findCol(headers, 'Invoices')
+  const proNoIdx = findCol(headers, 'Pro No', 'Pro#', 'Load No', 'Load#')
+  const modeIdx = findCol(headers, 'Equipment', 'Mode', 'Type')
+  const nameIdx = findCol(headers, 'Customer Name', 'Contact Name', 'Name', 'Customer', 'Shipper')
+  const dateIdx = findCol(headers, 'Date', 'Pickup Date', 'Load Date')
+  const puIdx = findCol(headers, 'Pick Up', 'Pickup', 'Origin', 'Pick')
+  const dropIdx = findCol(headers, 'Drop', 'Dropoff', 'Delivery', 'Destination')
+  const rateIdx = findCol(headers, 'Revenue', 'Customer Rate', 'Customer Rates', 'Charge', 'Rate')
+  const costIdx = findCol(headers, 'Trucker Rate', 'Trucker Rates', 'Carrier Cost', 'Trucker', 'Cost')
+  const carrierIdx = findCol(headers, 'Carrier Name', 'Carrier', 'Trucker Name', 'Trucker')
+  const mcIdx = findCol(headers, 'MC#', 'MC Number', 'MC')
+  const statusIdx = findCol(headers, 'Status', 'State', 'Load Status')
+  const invIdx = findCol(headers, 'Invoices', 'Invoice', 'Inv')
 
   // Build the new row (18 columns, A:R)
   const newRow: string[] = new Array(18).fill('')
