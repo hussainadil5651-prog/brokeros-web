@@ -18,6 +18,9 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
     const id = searchParams.get('id')
     const status = searchParams.get('status')
+    const refresh = searchParams.get('refresh')
+
+    if (refresh === 'true') invalidateCache(sheetId)
 
     if (id) {
       const load = await getLoadById(sheetId, id)

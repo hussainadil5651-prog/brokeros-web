@@ -220,7 +220,9 @@ export function parseDataRows(tabName: string, allRows: string[][]): ParsedLoad[
 
     const contactRaw = contactIdx >= 0 && contactIdx !== nameIdx && contactIdx !== emailIdx
       ? String(row[contactIdx] ?? '').trim()
-      : ''
+      : (phoneIdx >= 0 && phoneIdx - 1 !== nameIdx && phoneIdx - 1 !== emailIdx
+        ? String(row[phoneIdx - 1] ?? '').trim()
+        : '')
 
     results.push({
       proNo,

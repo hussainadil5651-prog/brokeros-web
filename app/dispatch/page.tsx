@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 
 interface LoadDocument { id: string; docType: string; originalName: string; uploadedAt: string; dataUrl: string; fileSize: number }
@@ -26,7 +26,6 @@ export default function DispatchPage() {
   const [documents, setDocuments] = useState<LoadDocument[]>([])
   const [uploading, setUploading] = useState(false)
   const [fetchError, setFetchError] = useState('')
-  const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (authStatus !== 'authenticated') return
@@ -67,7 +66,7 @@ export default function DispatchPage() {
 
   async function refreshLoads() {
     setLoading(true); setFetchError('')
-    try { const res = await fetch('/api/loads'); if (res.ok) { setLoads((await res.json()).loads ?? []); setFetchError('') } else setFetchError('Failed to refresh loads') } catch { setFetchError('Network error') } finally { setLoading(false) }
+    try { const res = await fetch('/api/loads?refresh=true'); if (res.ok) { setLoads((await res.json()).loads ?? []); setFetchError('') } else setFetchError('Failed to refresh loads') } catch { setFetchError('Network error') } finally { setLoading(false) }
   }
 
   async function handleCreate() {

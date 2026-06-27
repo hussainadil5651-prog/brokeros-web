@@ -97,7 +97,7 @@ function mapInvoiceStatus(sheetInvStatus: string): 'cleared' | 'unpaid' {
 
 // Per-user load cache
 const loadCache = new Map<string, { loads: Load[]; ts: number }>()
-const CACHE_TTL = 300_000
+const CACHE_TTL = 60_000 // 1 minute for near-live updates
 
 export async function refreshFromSheet(sheetId: string, tabs?: string[]): Promise<Load[]> {
   const parsed = await readAllLoads(sheetId, tabs)
@@ -140,9 +140,9 @@ export async function refreshFromSheet(sheetId: string, tabs?: string[]): Promis
   return loads
 }
 
-export async function getLoads(sheetId: string): Promise<Load[]> {
+export async function getLoads(sheetId: string, force?: boolean): Promise<Load[]> {
   const cached = loadCache.get(sheetId)
-  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+  if (!force && cached && Date.now() - cached.ts < CACHE_TTL) {
     return cached.loads
   }
   return refreshFromSheet(sheetId)
