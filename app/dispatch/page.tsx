@@ -22,7 +22,7 @@ export default function DispatchPage() {
   const [loads, setLoads] = useState<Load[]>([])
   const [selected, setSelected] = useState<Load | null>(null)
   const [loading, setLoading] = useState(true)
-  const [month, setMonth] = useState(currentMonth())
+  const [month, setMonth] = useState('')
   const [documents, setDocuments] = useState<LoadDocument[]>([])
   const [uploading, setUploading] = useState(false)
   const [fetchError, setFetchError] = useState('')
@@ -51,7 +51,7 @@ export default function DispatchPage() {
   }
 
   const months = [...new Set(loads.map(l => monthKey(l.pickUpDate)).filter(Boolean))].sort()
-  const filtered = loads.filter(l => monthKey(l.pickUpDate) === month)
+  const filtered = month ? loads.filter(l => monthKey(l.pickUpDate) === month) : loads
   const activeCount = filtered.filter(l => !['delivered', 'invoiced', 'paid'].includes(l.status)).length
   const totalProfit = filtered.reduce((s, l) => s + l.netCommission, 0)
 
@@ -92,9 +92,9 @@ export default function DispatchPage() {
           <div className="flex items-center gap-2">
             <button onClick={() => setShowCreate(true)} className="btn-primary">+ New</button>
             <button onClick={refreshLoads} className="btn-secondary">Refresh</button>
-            <select value={months.includes(month) ? month : ''} onChange={e => { setMonth(e.target.value || currentMonth()); setSelected(null) }}
+            <select value={month} onChange={e => { setMonth(e.target.value); setSelected(null) }}
               className="select">
-              {months.length === 0 && <option value="">No data</option>}
+              <option value="">All Months</option>
               {months.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>

@@ -4,14 +4,14 @@ import { authOptions } from '@/lib/auth'
 import { getClient, findEmailColumn, extractEmails } from '@/lib/google-sheets'
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const body = await req.json()
-  const { sheetId } = body
-  if (!sheetId) return NextResponse.json({ error: 'sheetId is required' }, { status: 400 })
-
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const body = await req.json().catch(() => null)
+    if (!body) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    const { sheetId } = body
+    if (!sheetId) return NextResponse.json({ error: 'sheetId is required' }, { status: 400 })
     const sheets = getClient()
     const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
     const sheetList = (meta.data.sheets ?? []).map(s => s.properties?.title).filter(Boolean) as string[]

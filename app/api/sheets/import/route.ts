@@ -5,19 +5,20 @@ import { readAllSheets, createBatches } from '@/lib/google-sheets'
 import { storeBatch } from '@/app/api/batches/import/store'
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const body = await req.json()
-  const { sheetId } = body
-
-  if (!sheetId) {
-    return NextResponse.json({ error: 'sheetId is required' }, { status: 400 })
-  }
-
   try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const body = await req.json().catch(() => null)
+    if (!body) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    const { sheetId } = body
+
+    if (!sheetId) {
+      return NextResponse.json({ error: 'sheetId is required' }, { status: 400 })
+    }
+
     const sheets = await readAllSheets(sheetId)
     const today = new Date().toISOString().split('T')[0]
     let totalBatchesCreated = 0

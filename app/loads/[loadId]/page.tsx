@@ -50,11 +50,11 @@ export default function LoadDetailPage() {
           <div className="flex items-center justify-between rounded-xl border border-[#e8e6e1] bg-white p-4">
             <div>
               <p className="kpi-label">Status</p>
-              <p className="mt-1 text-sm font-semibold text-[#1a1917]">{load.status === 'delivered' ? 'Delivered' : load.status}</p>
+              <p className="mt-1 text-sm font-semibold text-[#1a1917]">{{ quote: 'Quote', booked: 'Booked', dispatched: 'Dispatched', in_transit: 'In Transit', delivered: 'Delivered', invoiced: 'Invoiced', paid: 'Paid' }[load.status] ?? load.status}</p>
             </div>
             <div className="flex items-center gap-2">
               <select value={load.status} onChange={async e => { const r = await fetch('/api/loads', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ loadId: load.id, status: e.target.value }) }); if (r.ok) { const d = await r.json(); setLoad(d.load); fetchDocuments() } }} className="select">
-                <option value="booked">Booked</option><option value="in_transit">In Transit</option><option value="delivered">Delivered</option><option value="invoiced">Invoiced</option><option value="paid">Paid</option>
+                <option value="quote">Quote</option><option value="booked">Booked</option><option value="dispatched">Dispatched</option><option value="in_transit">In Transit</option><option value="delivered">Delivered</option><option value="invoiced">Invoiced</option><option value="paid">Paid</option>
               </select>
               {load.invoiceStatus?.toLowerCase().includes('cleared') && <span className="badge-green">Invoice Cleared</span>}
             </div>

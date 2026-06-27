@@ -171,9 +171,9 @@ export default function OutreachPage() {
                     </button>
                     <div>
                       <div className="flex items-center gap-2">
-                        <Link href={`/batches/${batch.id}`} className="text-sm font-semibold text-[#1a1917] hover:text-amber-600 transition-colors">
+                        <span className="text-sm font-semibold text-[#1a1917]">
                           Batch #{batch.batchNumber}
-                        </Link>
+                        </span>
                         {batch.sent && <span className="badge-green">Sent</span>}
                       </div>
                       <p className="text-xs text-[#9a9589]">{batch.emails.length} emails · {batch.assignedTo}</p>

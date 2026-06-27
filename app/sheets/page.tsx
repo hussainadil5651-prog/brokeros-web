@@ -70,8 +70,8 @@ export default function SheetsPage() {
   }
 
   function handleRemoveSheet(tabName: string) {
-    const saved = localStorage.getItem('afa-extra-sheets'); let extraSheets: { id: string; name: string }[] = []; try { extraSheets = JSON.parse(saved || '[]') } catch {}
-    extraSheets = extraSheets.filter(s => s.name !== tabName); localStorage.setItem('afa-extra-sheets', JSON.stringify(extraSheets))
+    const saved = localStorage.getItem('afa-extra-sheets'); let extraSheets: { id: string; tab: string; label: string }[] = []; try { extraSheets = JSON.parse(saved || '[]') } catch {}
+    extraSheets = extraSheets.filter(s => s.tab !== tabName); localStorage.setItem('afa-extra-sheets', JSON.stringify(extraSheets))
     setSheets(prev => prev.filter(s => s.tab !== tabName)); if (activeTab === tabName) setActiveTab(sheets.find(s => s.tab !== tabName)?.tab ?? 'CW')
   }
 
@@ -81,7 +81,7 @@ export default function SheetsPage() {
   const totalRows = currentSheet?.allRows.length ?? 0
   const dataRows = currentSheet?.allRows ?? []
   const maxCols = dataRows.reduce((max, row) => Math.max(max, row.length), 0)
-  const columnLetters = maxCols > 0 ? Array.from({ length: maxCols }, (_, i) => String.fromCharCode(65 + (i < 26 ? i : 0))) : []
+  const columnLetters = maxCols > 0 ? Array.from({ length: maxCols }, (_, i) => { let s = ''; let n = i; do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1 } while (n >= 0); return s }) : []
   const filteredRows = searchQuery ? dataRows.filter(r => r.some(c => String(c).toLowerCase().includes(searchQuery.toLowerCase()))) : dataRows
 
   return (

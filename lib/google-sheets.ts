@@ -5,8 +5,8 @@ let sheetsClient: sheets_v4.Sheets | null = null
 
 export function extractSheetId(input: string): string {
   const trimmed = input.trim()
-  // Already just an ID (starts with 1, no slashes)
-  if (/^1[a-zA-Z0-9_-]{20,}$/.test(trimmed)) return trimmed
+  // Already just an ID (no slashes, alphanumeric + dash/underscore, 20+ chars)
+  if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed) && !trimmed.includes('/')) return trimmed
   // URL format: https://docs.google.com/spreadsheets/d/{SHEET_ID}/...
   const match = trimmed.match(/\/d\/([a-zA-Z0-9_-]{20,})/)
   if (match) return match[1]
@@ -80,9 +80,13 @@ export interface ParsedLoad {
 
 export function parseCurrency(val: string): number {
   if (!val) return 0
-  const cleaned = String(val).replace(/[$,\s]/g, '').trim()
+  const s = String(val).trim()
+  // Handle accounting parentheses format: (1,234.56) = negative
+  const isNegative = /^\(.*\)$/.test(s)
+  const cleaned = s.replace(/[$,\s()]/g, '').trim()
   const n = parseFloat(cleaned)
-  return isNaN(n) ? 0 : n
+  if (isNaN(n)) return 0
+  return isNegative ? -n : n
 }
 
 function isHeaderRow(row: string[]): boolean {
@@ -90,26 +94,35 @@ function isHeaderRow(row: string[]): boolean {
   if (nonEmpty.length < 3) return false
   const text = row.join(' ').toLowerCase()
 
-  // 1. Explicit "Pro No" / "Pro#" header — always a header
-  if (/pro\s*#|pro\s*no|pro\s*number|load\s*#|load\s*number/i.test(text)) return true
+  // 1. Explicit "Pro No" / "Pro#" header — but ONLY if it's a standalone label, not a PRO number value
+  if (/pro\s*#|pro\s*no|pro\s*number/i.test(text)) return true
+  // "load #" / "load number" only match as header if there's no digit directly after #
+  if (/load\s*#\s*\d|load\s*number\s*\d/i.test(text)) return false
+  if (/load\s*#|load\s*number/i.test(text)) return true
 
   // 2. Row has dollar signs = data row, never a header
   if (row.some(c => /\$/.test(String(c || '')))) return false
 
   // 3. Row has a date-like value = data row
   if (row.some(c => /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(String(c || '')))) return false
+  if (row.some(c => /\d{4}-\d{2}-\d{2}/.test(String(c || '')))) return false
 
-  // 4. Heuristic: count how many cells look like column headers vs data
+  // 4. Row has a number-only cell = data row (IDs, amounts, phone numbers)
+  if (row.some(c => /^\d{4,}$/.test(String(c ?? '').trim()))) return false
+
+  // 5. Heuristic: count how many cells look like column headers vs data
   // Headers are short text labels, data has dates/amounts/long text
   const looksLikeHeader = (val: string) => {
     const v = val.trim().toLowerCase()
-    if (v.length > 30) return false // too long for a header
-    if (/\d{2,}/.test(v) && !/mc|ltl|ftl|sb/i.test(v)) return false // numbers = data
-    if (/[A-Z]{2,}/.test(val) && val.length > 15) return false // all caps long = data (company name)
+    if (v.length > 25) return false // too long for a header
+    if (v.length < 1) return false
+    if (/\d{3,}/.test(v)) return false // long numbers = data
+    if (/[A-Z]{3,}/.test(val) && val.length > 12) return false // all caps long = company name
     return true
   }
   const headerScore = nonEmpty.filter(c => looksLikeHeader(String(c))).length
-  return headerScore >= Math.ceil(nonEmpty.length * 0.6)
+  // Require 80% of cells to look like headers (was 60%, too permissive)
+  return nonEmpty.length >= 3 && headerScore >= Math.ceil(nonEmpty.length * 0.8)
 }
 
 function isMonthRow(row: string[]): boolean {
@@ -128,10 +141,12 @@ function isTotalRow(row: string[]): boolean {
 
 function findCol(headers: string[], ...keywords: string[]): number {
   for (const kw of keywords) {
+    const kwLower = kw.toLowerCase()
     const idx = headers.findIndex((h) => {
       if (!h) return false
       const lower = h.toLowerCase().trim()
-      return lower.includes(kw.toLowerCase()) || kw.toLowerCase().includes(lower)
+      // Only match if header contains keyword (not reverse — avoids "To" matching "Total")
+      return lower.includes(kwLower)
     })
     if (idx >= 0) return idx
   }
@@ -298,7 +313,7 @@ function colIndexToLetter(idx: number): string {
 export async function updateLoadStatusInSheet(sheetId: string, proNo: string, newStatus: string): Promise<boolean> {
   const loads = await readAllLoads(sheetId)
   const match = loads.find((l) => l.proNo === proNo)
-  if (!match) return false
+  if (!match || match._statusColIdx < 0) return false
 
   const colLetter = colIndexToLetter(match._statusColIdx)
   await updateCell(sheetId, match._sheetTab, match._sheetRow, colLetter, newStatus)
@@ -308,7 +323,7 @@ export async function updateLoadStatusInSheet(sheetId: string, proNo: string, ne
 export async function updateInvoiceStatusInSheet(sheetId: string, proNo: string, invStatus: string): Promise<boolean> {
   const loads = await readAllLoads(sheetId)
   const match = loads.find((l) => l.proNo === proNo)
-  if (!match) return false
+  if (!match || match._invoiceColIdx < 0) return false
 
   const colLetter = colIndexToLetter(match._invoiceColIdx)
   await updateCell(sheetId, match._sheetTab, match._sheetRow, colLetter, invStatus)

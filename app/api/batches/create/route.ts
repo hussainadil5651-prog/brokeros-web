@@ -36,13 +36,15 @@ async function getAllContactedEmails(): Promise<Set<string>> {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json()
-  const { date } = body
+    const body = await req.json().catch(() => null)
+    if (!body) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    const { date } = body
 
-  if (!date) return NextResponse.json({ error: 'date is required' }, { status: 400 })
+    if (!date) return NextResponse.json({ error: 'date is required' }, { status: 400 })
 
   const userId = session.user.email
   const config = await readUserConfig(userId)
@@ -140,4 +142,8 @@ export async function POST(req: NextRequest) {
       assignedTo: b.assignedTo,
     })),
   })
+  } catch (err: any) {
+    console.error('Batch creation error:', err)
+    return NextResponse.json({ error: 'Failed to create batches. Check sheet permissions.' }, { status: 500 })
+  }
 }

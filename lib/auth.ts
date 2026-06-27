@@ -2,6 +2,7 @@ import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import GoogleProvider from 'next-auth/providers/google'
 import { findUserByEmail, verifyPassword, findOrCreateUser } from '@/lib/google-sheets'
+import { checkRateLimit, resetRateLimit } from '@/lib/rate-limit'
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -18,17 +19,23 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
+        const key = `login:${credentials.email.toLowerCase()}`
+        const { allowed, retryAfterMs } = checkRateLimit(key)
+        if (!allowed) {
+          console.warn(`Rate limited login for ${credentials.email} — retry after ${Math.ceil(retryAfterMs / 1000)}s`)
+          return null
+        }
         const user = await findUserByEmail(credentials.email)
         if (!user) {
-          // Allow signup: if user doesn't exist and password meets minimum, create them
           if (credentials.password.length >= 6) {
             const newUser = await findOrCreateUser(credentials.email, credentials.password)
-            if (newUser) return { id: newUser.user_id, email: newUser.email, name: newUser.name, role: newUser.role }
+            if (newUser) { resetRateLimit(key); return { id: newUser.user_id, email: newUser.email, name: newUser.name, role: newUser.role } }
           }
           return null
         }
         const valid = await verifyPassword(credentials.email, credentials.password)
         if (!valid) return null
+        resetRateLimit(key)
         return { id: user.user_id, email: user.email, name: user.name, role: user.role }
       },
     }),

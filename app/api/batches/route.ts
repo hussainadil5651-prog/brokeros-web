@@ -47,7 +47,16 @@ export async function PATCH(req: NextRequest) {
     const session = await getServerSession(authOptions)
     if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const body = await req.json()
+    const body = await req.json().catch(() => null)
+    if (!body) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+
+    // Ensure batches are loaded before looking up
+    if (!importedBatches.size) {
+      const { getDataByType } = await import('@/lib/app-sheet')
+      const results = await getDataByType<import('./import/store').ImportedBatch>('batches')
+      for (const { data } of results) { for (const b of data) { importedBatches.set(b.id, b) } }
+    }
+
     if (body.batchId && body.sent !== undefined) {
       const batch = importedBatches.get(body.batchId)
       if (batch) {

@@ -69,11 +69,9 @@ export default function DashboardPage() {
 
       if (results[0].status === 'fulfilled') {
         const r = results[0].value
-        if (r.ok) {
-          const d = await r.json()
-          if (d.setupRequired && !d.loads) { setSetupRequired(true) }
-          else { setLoads(d.loads ?? []) }
-        }
+        const d = await r.json().catch(() => ({}))
+        if (d.setupRequired) { setSetupRequired(true) }
+        else if (r.ok) { setLoads(d.loads ?? []) }
       }
       if (results[1].status === 'fulfilled' && results[1].value.ok) {
         const d = await results[1].value.json()

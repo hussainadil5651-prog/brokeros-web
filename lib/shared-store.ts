@@ -230,7 +230,7 @@ export function extractInvoices(loads: Load[]): Invoice[] {
     .filter((l) => l.status === 'delivered' || l.status === 'invoiced' || l.status === 'paid')
     .map((l) => {
       invCounter++
-      const invCleared = l.invoiceStatus?.toLowerCase().includes('cleared')
+      const invCleared = l.invoiceStatus?.toLowerCase().includes('cleared') || l.invoiceStatus?.toLowerCase().includes('paid')
       const payrollCycle = l.deliveryDate ? getPayrollCycle(l.deliveryDate) : null
       const fortnightlyPayoutDate = payrollCycle ? payrollCycle.end : null
       const isPastPayroll = !!fortnightlyPayoutDate && fortnightlyPayoutDate <= today
